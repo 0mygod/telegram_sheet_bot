@@ -1,13 +1,19 @@
 import logging
 import os
-import telegram
+import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    CallbackQueryHandler,
+    ContextTypes,
+)
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+# Logging
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -16,7 +22,6 @@ SHEET_URL = os.getenv("SHEET_URL")
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
 client = gspread.authorize(creds)
-
 today_tab = datetime.today().strftime("%d-%m-%Y")
 worksheet = client.open_by_url(SHEET_URL).worksheet(today_tab)
 
@@ -48,30 +53,24 @@ def format_line_data(line_name):
         message += f"✳️ {op.strip()}: 1st={first} | 2nd={second} | 3rd={third} | Total={total}\n"
     return message
 
-def start(update: Update, context: CallbackContext):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines = get_lines()
     keyboard = [[InlineKeyboardButton(line, callback_data=line)] for line in lines]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    update.message.reply_text('Select Production Line:', reply_markup=reply_markup)
+    await update.message.reply_text("Select Production Line:", reply_markup=reply_markup)
 
-def button(update: Update, context: CallbackContext):
+async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    query.answer()
+    await query.answer()
     line = query.data
     text = format_line_data(line)
-    query.edit_message_text(text=text)
+    await query.edit_message_text(text=text)
 
-def error(update: Update, context: CallbackContext):
-    logger.warning(f"Update {update} caused error {context.error}")
+async def main():
+    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(button))
+    await app.run_polling()
 
-def main():
-    updater = Updater(TELEGRAM_TOKEN, use_context=True)
-    dp = updater.dispatcher
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CallbackQueryHandler(button))
-    dp.add_error_handler(error)
-    updater.start_polling()
-    updater.idle()
-
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    asyncio.run(main())
